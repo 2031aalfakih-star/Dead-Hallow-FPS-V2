@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>BO3 Zombies Browser Demo</title>
+  <meta charset="UTF-8">
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; background:#222; }
+    canvas { display:block; }
+    #hud-bar { position:fixed;top:24px;left:32px;width:224px;height:28px;z-index:10; }
+    #health-bg { width:224px;height:28px;background:#222;border-radius:12px;border:2px solid #317d2f;position:absolute; }
+    #health-bar { height:28px;background:linear-gradient(90deg,#5afd5a 60%,#317d2f 100%);border-radius:11px;position:absolute;top:0;left:0; }
+    #health-txt { position:absolute;width:100%;text-align:center;color:#fff;font-family:sans-serif;font-size:1.07rem;font-weight:bold;line-height:28px;text-shadow:0 0 7px #000b; }
+    #hud-ammo { position:fixed;right:38px;bottom:38px;display:flex;align-items:center;background:rgba(40,0,0,0.38);border-radius:10px;padding:10px 20px 10px 15px;box-shadow:0 0 8px #000b;z-index:10; }
+    #gunsvg { height:33px;width:38px;margin-right:10px; }
+    #ammo, #maxammo, #mag, #maxmag { font-size:2.1rem;color:#fff;font-family:'Consolas',monospace;margin-right:4px; }
+    #slash, #magsep { color:#fff7;font-size:1.1rem;margin:0 2px; }
+    #hud-points { position:fixed;top:24px;right:42px;font-family:sans-serif;font-size:1.5rem;background:rgba(0,0,0,0.22);padding:7px 18px;border-radius:8px;color:#ffe600;text-shadow:0 0 6px #000a;z-index:10; }
+    #hud-round { position:fixed;top:70px;right:42px;font-family:sans-serif;font-size:1.1rem;background:rgba(0,0,0,0.18);padding:5px 16px 3px 16px;border-radius:8px;color:#fff;text-shadow:0 0 6px #000a;z-index:10; }
+    #hud-buy { position:fixed;bottom:100px;left:50%;transform:translateX(-50%);font-family:sans-serif;font-size:1.3rem;background:rgba(0,30,0,0.58);padding:11px 28px 9px 28px;border-radius:12px;color:#ffe600;text-shadow:0 0 6px #000a;z-index:20;font-weight:bold;display:none; }
+    #hud-msg { position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:sans-serif;font-size:2.1rem;background:rgba(0,0,0,0.83);padding:22px 40px 19px 40px;border-radius:14px;color:#fff;text-shadow:0 0 13px #000d;z-index:100;display:none; }
+    #instructions { position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);color:#fff;padding:22px 38px;border-radius:10px;font-family:Arial,sans-serif;font-size:1.2rem;z-index:100;text-align:center; }
+  </style>
+</head>
+<body>
+<!-- HUD -->
+<div id="hud-bar"><div id="health-bg"></div><div id="health-bar"></div><div id="health-txt"></div></div>
+<div id="hud-ammo">
+  <svg id="gunsvg" viewBox="0 0 64 30"><rect x="2" y="15" width="48" height="7" rx="2" fill="#222"/><rect x="28" y="22" width="8" height="6" rx="1.7" fill="#444"/><rect x="50" y="17" width="10" height="5" rx="1.5" fill="#666"/><rect x="34" y="12" width="16" height="7" rx="2" fill="#888"/><rect x="8" y="19" width="8" height="3" rx="1" fill="#888"/></svg>
+  <span id="ammo">10</span><span id="slash">/</span><span id="maxammo">10</span>
+  <span id="magsep">&nbsp;|&nbsp;</span>
+  <span id="mag">3</span><span id="slash">/</span><span id="maxmag">3</span>
+</div>
+<div id="hud-points">500</div>
+<div id="hud-round">Round 1</div>
+<div id="hud-buy"></div>
+<div id="hud-msg"></div>
+<div id="instructions">Click to play<br>WASD: Move &nbsp; Mouse: Look &nbsp; Shift: Sprint &nbsp; Space: Jump<br>Click: Shoot &nbsp; R: Reload &nbsp; E: Buy<br>Survive as long as you can!</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x6eb7ea);
+scene.fog = new THREE.Fog(0x6eb7ea, 40, 90);
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, .96);
+sun.position.set(32,110,32); scene.add(sun);
+
+// --- Studded baseplate
+const baseplate = new THREE.Group();
+const plateSize = 50, studRad = 0.42, studHeight = 0.16, tile = 2;
+const plate = new THREE.Mesh(new THREE.BoxGeometry(plateSize,0.3,plateSize),new THREE.MeshPhongMaterial({color:0x777879}));
+plate.position.y = -0.14;
+baseplate.add(plate);
+for(let x=-plateSize/2+tile; x<plateSize/2; x+=tile)
+for(let z=-plateSize/2+tile; z<plateSize/2; z+=tile){
+  const stud = new THREE.Mesh(
+    new THREE.CylinderGeometry(studRad,studRad,studHeight,18),
+    new THREE.MeshPhongMaterial({color:0x9e9e9e,shininess:100})
+  );
+  stud.position.set(x,0.18,z);
+  baseplate.add(stud);
+}
+scene.add(baseplate);
+
+// --- Blocky walls & props
+function wall(x,y,z,sx,sy,sz,c=0x34343c){ const w=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),new THREE.MeshPhongMaterial({color:c})); w.position.set(x,y,z);scene.add(w);}
+wall(0,3,-plateSize/2,plateSize,6,0.7); wall(0,3,plateSize/2,plateSize,6,0.7);
+wall(-plateSize/2,3,0,0.7,6,plateSize); wall(plateSize/2,3,0,0.7,6,plateSize);
+wall(-10,1.5,-6,6,2,2,0x232e43); wall(8,1.5,7,6,1.7,2,0x232e43);
+const car = new THREE.Group();
+car.add(new THREE.Mesh(new THREE.BoxGeometry(3.3,1.2,1.5),new THREE.MeshPhongMaterial({color:0x2e5f8d})));
+const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.29,0.29,0.45,14),new THREE.MeshPhongMaterial({color:0x181818}));
+wheel.rotation.z = Math.PI/2;
+for(let i=-1;i<=1;i+=2){ let w1=wheel.clone();w1.position.set(i*1.2,-0.45,0.6);car.add(w1); let w2=wheel.clone();w2.position.set(i*1.2,-0.45,-0.6);car.add(w2);}
+car.position.set(0,0.6,11);scene.add(car);
+// Mystery box
+const box = new THREE.Mesh(new THREE.BoxGeometry(2.4,1,1),new THREE.MeshPhongMaterial({color:0x3c313d}));
+box.position.set(plateSize/5,0.5,-plateSize/5);scene.add(box);
+
+// --- Player character (blocky with "arms" for anim)
+const player = new THREE.Group();
+const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,2.1,16),new THREE.MeshPhongMaterial({color:0x4b8fed}));
+body.position.y=2.2; player.add(body);
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.5,18,14),new THREE.MeshPhongMaterial({color:0xffe0b0}));
+head.position.y = 3.5; player.add(head);
+const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,1.2,8),new THREE.MeshPhongMaterial({color:0xffe0b0}));
+armL.position.set(-0.7,2.8,0); player.add(armL);
+const armR = armL.clone(); armR.position.set(0.7,2.8,0); player.add(armR);
+player.position.set(0,0,0); scene.add(player);
+
+// --- Camera + controls
+const camera = new THREE.PerspectiveCamera(75,window.innerWidth/window.innerHeight,0.1,120);
+let camRadius = 8, camPolar = Math.PI/3, camAzimuth = Math.PI/2;
+const cameraTarget = new THREE.Vector3();
+function camUpdate() {
+  camera.position.x = player.position.x + camRadius * Math.sin(camPolar)*Math.cos(camAzimuth);
+  camera.position.y = player.position.y + 3 + camRadius*Math.cos(camPolar);
+  camera.position.z = player.position.z + camRadius * Math.sin(camPolar)*Math.sin(camAzimuth);
+  camera.lookAt(player.position.x,player.position.y+2,player.position.z);
+}
+camUpdate();
+
+// --- Pointer Lock
+let pointerLocked = false;
+const instructions = document.getElementById('instructions');
+document.body.addEventListener('click', () => {
+  if (!pointerLocked) renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === renderer.domElement;
+  instructions.style.display = pointerLocked ? 'none' : '';
+});
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked) return;
+  camAzimuth -= e.movementX * 0.0024;
+  camPolar -= e.movementY * 0.002;
+  camPolar = Math.max(0.19,Math.min(Math.PI/2-0.03,camPolar));
+});
+
+// --- WASD, walk/sprint/jump
+let moveF=0,moveB=0,moveL=0,moveR=0,vy=0,jumping=false,sprinting=0;
+document.addEventListener('keydown',ev=>{
+  if(ev.code==='KeyW') moveF=1;
+  if(ev.code==='KeyS') moveB=1;
+  if(ev.code==='KeyA') moveL=1;
+  if(ev.code==='KeyD') moveR=1;
+  if(ev.code==='ShiftLeft'||ev.code==='ShiftRight') sprinting=1;
+  if(ev.code==='Space' && !jumping){vy=0.23;jumping=true;}
+});
+document.addEventListener('keyup',ev=>{
+  if(ev.code==='KeyW') moveF=0;
+  if(ev.code==='KeyS') moveB=0;
+  if(ev.code==='KeyA') moveL=0;
+  if(ev.code==='KeyD') moveR=0;
+  if(ev.code==='ShiftLeft'||ev.code==='ShiftRight') sprinting=0;
+});
+
+// --- Health/points/round UI
+let health=100,maxHealth=100,points=500,round=1;
+const healthBar=document.getElementById("health-bar"),healthTxt=document.getElementById("health-txt");
+const pointsTxt=document.getElementById("hud-points"),roundTxt=document.getElementById("hud-round");
+function updateHealth(){let p=Math.max(0,Math.min(1,health/maxHealth));healthBar.style.width=(p*100)+"%";healthTxt.textContent=`${Math.round(health)} / ${maxHealth}`;}
+function updatePoints(){pointsTxt.textContent=points;}
+function updateRound(){roundTxt.textContent="Round "+round;}
+updateHealth();updatePoints();updateRound();
+
+// --- Gun/ammo UI
+let bullets=10,maxBullets=10,mags=3,maxMags=3,gunName="Glock";
+const ammoTxt=document.getElementById("ammo"),maxAmmoTxt=document.getElementById("maxammo");
+const magTxt=document.getElementById("mag"),maxMagTxt=document.getElementById("maxmag");
+function updateAmmo(){ammoTxt.textContent=bullets;maxAmmoTxt.textContent=maxBullets;magTxt.textContent=mags;maxMagTxt.textContent=maxMags;}
+updateAmmo();
+
+// --- Gun fire/reload/recoil
+let canShoot=true,recoilT=0;
+const gunSound=new Audio('sounds/glock.mp3');
+gunSound.preload="auto";
+function shoot(){
+  if(!canShoot||bullets<=0)return;
+  bullets--;updateAmmo();
+  gunSound.currentTime=0;gunSound.play();
+  canShoot=false;recoilT=1.5;
+  armR.rotation.x = -Math.PI/2.1;
+  setTimeout(()=>{armR.rotation.x=0;},160);
+  setTimeout(()=>{canShoot=true;},1500);
+}
+document.addEventListener('mousedown',e=>{if(e.button===0)shoot();});
+document.addEventListener('keydown',e=>{
+  if(e.code==="KeyR"&&mags>0&&bullets<maxBullets){mags--;bullets=maxBullets;updateAmmo();}
+});
+
+// --- Zombies
+let zombies=[],zombieSpeed=0.07;
+function spawnZombie(x=0,z=15){
+  const zmb=new THREE.Group();
+  const zb=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,2,14),new THREE.MeshPhongMaterial({color:0x383}));
+  zb.position.y=2;zmb.add(zb);
+  const zh=new THREE.Mesh(new THREE.SphereGeometry(0.45,14,10),new THREE.MeshPhongMaterial({color:0x5e6d37}));
+  zh.position.y=3.3;zmb.add(zh);
+  zmb.position.set(x,0,z);zmb.hp=30;zmb.dead=false;
+  scene.add(zmb);zombies.push(zmb);
+}
+function spawnWave(n){
+  for(let i=0;i<n;i++)spawnZombie(-18+Math.random()*36,22+Math.random()*8);
+}
+spawnWave(4);
+
+// --- Buy zone
+const buyTxt=document.getElementById("hud-buy");
+let inBuy=false,buyType="",buyPrice=0;
+function showBuy(txt){buyTxt.style.display="block";buyTxt.textContent=txt;}
+function hideBuy(){buyTxt.style.display="none";}
+
+// --- Animate
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+let walkTime=0,msgTimer=0;
+function animate(){
+  requestAnimationFrame(animate);
+
+  // Move
+  let moveX=moveR-moveL,moveZ=moveF-moveB;let spd=0.13+0.14*sprinting;
+  let moving=(moveX||moveZ);
+  if(moving){
+    let ang=Math.atan2(moveX,moveZ),dir=camAzimuth+ang;
+    player.rotation.y=dir;
+    let nx=player.position.x+Math.sin(dir)*spd,nz=player.position.z+Math.cos(dir)*spd;
+    if(Math.abs(nx)<plateSize/2-0.8&&Math.abs(nz)<plateSize/2-0.8){player.position.x=nx;player.position.z=nz;}
+  }
+  player.position.y+=vy;vy-=0.013;if(player.position.y<0){player.position.y=0;vy=0;jumping=false;}
+
+  // Anim
+  if(moving){walkTime+=0.2+0.13*sprinting;armL.rotation.x=Math.sin(walkTime)*0.8;
+    if(canShoot)armR.rotation.x=-Math.sin(walkTime)*0.8;
+  }else if(canShoot){armL.rotation.x=armR.rotation.x=0;walkTime=0;}
+
+  // Camera
+  if(recoilT>0){camPolar-=0.07*Math.sin(recoilT);recoilT-=0.04;}
+  camUpdate();
+
+  // Zombies AI
+  for(const z of zombies){
+    if(z.dead)continue;
+    let dx=player.position.x-z.position.x,dz=player.position.z-z.position.z,dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist>1.6){
+      let a=Math.atan2(dx,dz);
+      z.position.x+=Math.sin(a)*zombieSpeed;z.position.z+=Math.cos(a)*zombieSpeed;
+      z.rotation.y=a;
+    }
+    if(dist<=1.7&&!z.dead&&Math.abs(player.position.y)<1){
+      health-=0.14;if(health<0)health=0;updateHealth();
+    }
+    if(bullets<maxBullets&&dist<2.5&&canShoot===false&&!z.dead){
+      z.hp-=20;if(z.hp<=0){z.dead=true;z.position.y=-99;}
+      points+=60;updatePoints();
+    }
+  }
+
+  // Buy zone for mystery box
+  let boxDist=Math.sqrt(Math.pow(player.position.x-box.position.x,2)+Math.pow(player.position.z-box.position.z,2));
+  if(boxDist<2.5){
+    inBuy=true;buyType="mystery";buyPrice=950;
+    showBuy("Press [E] to buy Mystery Box ($950)");
+  }else if(inBuy){
+    inBuy=false;hideBuy();
+  }
+  // Show msg
+  if(msgTimer>0){msgTimer--;if(msgTimer<1)document.getElementById("hud-msg").style.display="none";}
+
+  renderer.render(scene,camera);
+}
+animate();
+
+// --- Buy handler
+document.addEventListener('keydown',e=>{
+  if(e.code==="KeyE"&&inBuy&&points>=buyPrice){
+    if(buyType==="mystery"){
+      bullets=10;maxBullets=10;mags=3;maxMags=3;gunName="Raygun";
+      updateAmmo();points-=950;updatePoints();
+      document.getElementById("hud-msg").textContent="You got the Raygun!";
+      document.getElementById("hud-msg").style.display="block";msgTimer=70;
+    }
+  }
+});
+
+// --- Responsive
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+</script>
+</body>
+</html>
