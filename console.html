@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Game Console Log</title>
+  <style>
+    body { background: #181818; color: #eee; font-family: monospace; margin: 0; }
+    #log { padding: 1em; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Console Log</h1>
+  <div id="log"></div>
+  <script>
+    // Intercept console.log, console.error, etc.
+    const logDiv = document.getElementById('log');
+    function appendLog(type, ...args) {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ');
+      logDiv.textContent += `[${type.toUpperCase()}] ${msg}\n`;
+    }
+
+    ['log', 'warn', 'error', 'info'].forEach(type => {
+      const orig = console[type];
+      console[type] = function(...args) {
+        appendLog(type, ...args);
+        orig.apply(console, args);
+      };
+    });
+
+    window.onerror = function(message, source, lineno, colno, error) {
+      appendLog('error', `${message} (at ${source}:${lineno}:${colno})`);
+    };
+  </script>
+</body>
+</html>
